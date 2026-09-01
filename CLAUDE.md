@@ -96,11 +96,62 @@ assumption.
 
 ## Repository layout
 
-The repository is currently a skeleton. `doc/requirements.md` and
-`doc/architecture.md` are placeholders to be filled in as the design settles.
+```
+backend/          FastAPI service (see backend/README.md)
+  app/
+    core/         env-based settings, error hierarchy
+    db/           declarative base, engine and session
+    domain/       pure business logic: Money, currencies, effective dating
+    models/       SQLAlchemy ORM models
+    schemas/      Pydantic request/response contracts
+    repositories/ query construction
+    services/     business rules and transaction boundaries
+    api/          routers, dependencies, RFC 7807 error handlers
+  alembic/        migrations
+  tests/
+doc/              architecture.md, requirements.md
+```
 
-When the backend and frontend are scaffolded, keep the split explicit — a
-backend package organized by domain module (models, schemas, services,
-repositories, routes per module) and a separate frontend app — and update this
-section with the actual paths and the real commands for install, dev server,
-tests, migrations, and linting.
+The frontend is not yet scaffolded; it will live in a sibling `frontend/`
+directory. `doc/requirements.md` is still empty — the architecture document
+records the requirements assumed in its absence.
+
+Dependencies point one way: `api → services → repositories → models`, with
+`domain/` at the bottom depending on nothing. Services never import FastAPI;
+domain functions never import SQLAlchemy.
+
+## Backend commands
+
+Run from `backend/`:
+
+| Task | Command |
+|---|---|
+| Install | `uv pip install --python .venv/bin/python -e ".[dev]"` |
+| Run the API | `.venv/bin/uvicorn app.main:app --reload` |
+| Tests | `.venv/bin/python -m pytest` |
+| Lint | `.venv/bin/ruff check .` |
+| Format | `.venv/bin/ruff format .` |
+| Type check | `.venv/bin/mypy app tests` |
+| Apply migrations | `.venv/bin/alembic upgrade head` |
+| New migration | `.venv/bin/alembic revision --autogenerate -m "message"` |
+| Verify models match migrations | `.venv/bin/alembic check` |
+
+Before considering a feature complete, run tests, lint, and type check.
+
+## Established conventions
+
+- **Money is integer minor units plus a currency**, never a float. Use
+  `app.domain.money.Money`; cross-currency arithmetic raises rather than
+  coercing. Currency precision comes from the registry — JPY has 0 minor-unit
+  digits, so "divide by 100" is wrong.
+- **Compensation is effective-dated.** Employees have no salary column;
+  `SalaryRecord` periods are half-open `[effective_from, effective_to)`, and at
+  most one open record exists per (employee, pay_type).
+- **The schema targets SQLite ∩ PostgreSQL.** No `JSONB`, arrays, or native
+  `ENUM` types. Foreign keys are enabled explicitly on SQLite, which has them
+  off by default.
+- **Errors** subclass `app.core.errors.AppError` and render as RFC 7807 problem
+  details with a stable machine-readable `type` slug.
+- **`flake8-type-checking` (TC) rules are intentionally disabled** in ruff:
+  SQLAlchemy and Pydantic resolve annotations at runtime, so moving those
+  imports under `TYPE_CHECKING` breaks model configuration.
